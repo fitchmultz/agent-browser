@@ -34,6 +34,8 @@ If the debugging port is not open yet, `connect` and `--cdp` wait up to 2 second
 
 ### Pre-navigation setup (one-turn batch)
 
+Browser launch options, including `--state`, apply once before the first browser-dependent row, not again between rows. Explicit URL reads and bailed local errors do not trigger browser setup.
+
 ```bash
 agent-browser batch \
   '["open"]' \

@@ -1631,7 +1631,7 @@ fn parity_tools() -> Vec<Value> {
         tool(
             TOOL_BATCH,
             "Batch",
-            "Run multiple commands sequentially.",
+            "Run multiple commands sequentially. Server-configured browser launch options such as --state apply once before the first browser-dependent row, not between rows. Explicit URL reads and bailed local errors do not trigger browser setup.",
             json!({ "commands": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "minItems": 1 }, "bail": { "type": "boolean" } }),
             &["commands"],
         ),
@@ -4946,6 +4946,7 @@ mod tests {
             vec!["--executable-path", "/bin/sh"],
             vec!["--args", "--foo"],
             vec!["--config", "/c.json"],
+            vec!["--state", "/s.json"],
             vec!["--allowed-domains=x"],
         ] {
             let arguments = json!({ "extraArgs": bad });
