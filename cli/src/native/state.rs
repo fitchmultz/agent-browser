@@ -179,6 +179,19 @@ async fn collect_storage_in_session(
     // Blank HTML response body, pre-encoded to avoid repeated base64 work per request
     let blank_html_b64 = base64::engine::general_purpose::STANDARD.encode("<html></html>");
 
+    // A service worker would otherwise answer the navigation itself, running
+    // its fetch handler and serving a page whose scripts run before Fetch sees
+    // a request. Chrome applies the bypass only while Network is enabled.
+    client
+        .send_command_no_params("Network.enable", Some(temp_session))
+        .await?;
+    client
+        .send_command(
+            "Network.setBypassServiceWorker",
+            Some(json!({ "bypass": true })),
+            Some(temp_session),
+        )
+        .await?;
     client
         .send_command(
             "Fetch.enable",
@@ -457,19 +470,30 @@ pub fn validate_state_file(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Replay a snapshot and return its origins so the browser can retain them for
-/// subsequent saves, even when they are no longer in the active frame tree.
+/// Per-origin outcome of replaying a state file's storage.
+#[derive(Debug, Default)]
+pub struct LoadedState {
+    /// Canonical security origins whose storage Chrome accepted. Only these
+    /// are remembered for later saves.
+    pub restored_origins: Vec<String>,
+    /// Saved origin names that redirected or failed to restore, as written in
+    /// the state file. These are reported, never remembered.
+    pub skipped_origins: Vec<String>,
+}
+
+/// Restore cookies and per-origin storage from a state file.
+///
+/// Storage is written through CDP DOMStorage, so no page script sees the values and Chrome only accepts the write when a frame is at the saved origin. Origins that redirect elsewhere or fail to load are skipped.
 pub async fn load_state(
     client: &CdpClient,
     session_id: &str,
     path: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<LoadedState, String> {
     let json_str = read_state_json(path)?;
 
     let state: StorageState =
         serde_json::from_str(&json_str).map_err(|e| format!("Invalid state file: {}", e))?;
 
-    // Load cookies
     if !state.cookies.is_empty() {
         let cookie_values: Vec<Value> = state
             .cookies
@@ -479,69 +503,66 @@ pub async fn load_state(
         cookies::set_cookies(client, session_id, cookie_values, None).await?;
     }
 
-    // Load storage per origin
+    let mut loaded = LoadedState::default();
     for origin in &state.origins {
         if origin.local_storage.is_empty() && origin.session_storage.is_empty() {
             continue;
         }
-
-        // Navigate to origin to set storage
-        let navigate_url = format!("{}/", origin.origin.trim_end_matches('/'));
-        client
-            .send_command(
-                "Page.navigate",
-                Some(json!({ "url": navigate_url })),
-                Some(session_id),
-            )
-            .await?;
-
-        // Brief wait for navigation
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        for entry in &origin.local_storage {
-            let js = format!(
-                "localStorage.setItem({}, {})",
-                serde_json::to_string(&entry.name).unwrap_or_default(),
-                serde_json::to_string(&entry.value).unwrap_or_default(),
-            );
-            let _ = client
-                .send_command_typed::<_, super::cdp::types::EvaluateResult>(
-                    "Runtime.evaluate",
-                    &EvaluateParams {
-                        expression: js,
-                        return_by_value: Some(true),
-                        await_promise: Some(false),
-                    },
-                    Some(session_id),
-                )
-                .await;
-        }
-
-        for entry in &origin.session_storage {
-            let js = format!(
-                "sessionStorage.setItem({}, {})",
-                serde_json::to_string(&entry.name).unwrap_or_default(),
-                serde_json::to_string(&entry.value).unwrap_or_default(),
-            );
-            let _ = client
-                .send_command_typed::<_, super::cdp::types::EvaluateResult>(
-                    "Runtime.evaluate",
-                    &EvaluateParams {
-                        expression: js,
-                        return_by_value: Some(true),
-                        await_promise: Some(false),
-                    },
-                    Some(session_id),
-                )
-                .await;
+        match restore_origin_storage(client, session_id, origin).await {
+            Ok(restored) => loaded.restored_origins.extend(restored),
+            Err(_) => loaded.skipped_origins.push(origin.origin.clone()),
         }
     }
 
-    Ok(state
-        .origins
-        .into_iter()
-        .map(|origin| origin.origin)
-        .collect())
+    Ok(loaded)
+}
+
+/// Returns the canonical origin to remember for later saves. Opaque origins
+/// return `None`, matching navigation history, which never records them.
+async fn restore_origin_storage(
+    client: &CdpClient,
+    session_id: &str,
+    origin: &OriginStorage,
+) -> Result<Option<String>, String> {
+    let tuple_origin = url::Url::parse(&origin.origin)
+        .ok()
+        .map(|u| u.origin())
+        .filter(|o| o.is_tuple())
+        .map(|o| o.ascii_serialization());
+    let security_origin = tuple_origin
+        .clone()
+        .unwrap_or_else(|| origin.origin.trim_end_matches('/').to_string());
+    client
+        .send_command(
+            "Page.navigate",
+            Some(json!({ "url": format!("{}/", security_origin) })),
+            Some(session_id),
+        )
+        .await?;
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let entries = origin
+        .local_storage
+        .iter()
+        .map(|e| (true, e))
+        .chain(origin.session_storage.iter().map(|e| (false, e)));
+    for (is_local_storage, entry) in entries {
+        client
+            .send_command(
+                "DOMStorage.setDOMStorageItem",
+                Some(json!({
+                    "storageId": {
+                        "securityOrigin": security_origin,
+                        "isLocalStorage": is_local_storage,
+                    },
+                    "key": entry.name,
+                    "value": entry.value,
+                })),
+                Some(session_id),
+            )
+            .await?;
+    }
+    Ok(tuple_origin)
 }
 
 fn is_state_file(path: &std::path::Path) -> bool {

@@ -544,6 +544,9 @@ fn print_primary_response(resp: &Response, action: Option<&str>, opts: &OutputOp
         return;
     }
 
+    // Printed before the per-action formatting, most of which returns early.
+    print_warning(resp);
+
     if let Some(data) = &resp.data {
         print_lifecycle_note(data);
 
@@ -570,7 +573,6 @@ fn print_primary_response(resp: &Response, action: Option<&str>, opts: &OutputOp
                 } else {
                     println!("{} No dialog is currently open", color::success_indicator());
                 }
-                print_warning(resp);
                 return;
             }
         }
@@ -1301,6 +1303,15 @@ fn print_primary_response(resp: &Response, action: Option<&str>, opts: &OutputOp
                         color::success_indicator(),
                         color::green(path)
                     );
+                    if let Some(skipped) = data.get("skippedOrigins").and_then(|v| v.as_array()) {
+                        for origin in skipped.iter().filter_map(|v| v.as_str()) {
+                            println!(
+                                "{} Skipped storage for {} (page did not stay on that origin)",
+                                color::warning_indicator(),
+                                origin
+                            );
+                        }
+                    }
                 }
                 // video_start and other commands that provide a path with a note
                 "video_start" => {
@@ -1530,8 +1541,6 @@ fn print_primary_response(resp: &Response, action: Option<&str>, opts: &OutputOp
         // Default success
         println!("{} Done", color::success_indicator());
     }
-
-    print_warning(resp);
 }
 
 fn print_lifecycle_note(data: &serde_json::Value) {
@@ -3095,12 +3104,14 @@ Usage: agent-browser state <operation> [args]
 
 Save, restore, list, and manage browser state (cookies, localStorage, sessionStorage).
 Saving collects visited origins without revisiting sites over the network.
-Imported origins are remembered for later localStorage collection.
-An origin collection failure leaves the existing snapshot unchanged.
+Restored origins are remembered for later localStorage collection;
+skipped origins are not.
+A temporary-target collection failure leaves the existing snapshot unchanged.
 
 Operations:
   save <path>                        Save current state to file
-  load <path>                        Load state from file
+  load <path>                        Load state from file (origins that redirect
+                                     elsewhere are skipped and listed)
   list                               List saved state files
   show <filename>                    Show state summary
   rename <old-name> <new-name>       Rename state file
@@ -3519,6 +3530,7 @@ separated by blank lines (or as a JSON array with --json).
 Options:
   --bail               Stop on first error (default: continue all commands)
   --json               Output results as a JSON array
+  --omit-command       With --json, replace each command array with a zero-based `index` field
 
 Argument Mode:
   Each quoted argument is a full command string:
@@ -3538,7 +3550,10 @@ Examples:
   agent-browser batch "open https://example.com" "screenshot"
   agent-browser batch --bail "open https://example.com" "click @e1" "screenshot"
   echo '[["open", "https://example.com"], ["snapshot"]]' | agent-browser batch
+  echo '[["fill", "#password", "secret"]]' | agent-browser batch --json --omit-command
   agent-browser batch --bail < commands.json
+
+With --json --omit-command, each row replaces its command array with a stable zero-based `index` field on success, failure, or --bail. This only removes command arrays and does not make output safe for secrets. Errors and response data are unchanged: type echoes typed text, and get value/eval may return input values.
 "##
         }
 
@@ -3963,8 +3978,9 @@ Init scripts:
   removeinitscript <id>      Remove a registered script from every tab in the session
 
 Batch:
-  batch [--bail] ["cmd" ...]  Execute multiple commands sequentially (args or stdin)
+  batch [options] ["cmd" ...] Execute multiple commands sequentially (args or stdin)
                               --bail stops on first error (default: continue all)
+                              --omit-command uses a zero-based `index` field with --json
 
 Auth Vault:
   auth save <name> [opts]    Save auth profile (--url, --username, --password/--password-stdin)
