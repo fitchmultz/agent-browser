@@ -11,6 +11,7 @@ mod native;
 mod output;
 mod plugins;
 mod read;
+mod session_files;
 mod skills;
 #[cfg(test)]
 mod test_utils;
@@ -1665,13 +1666,17 @@ fn main() {
     // stay local. Launch setup is shared only within this batch invocation.
     if cmd.get("action").and_then(|v| v.as_str()) == Some("batch") {
         let bail = cmd.get("bail").and_then(|v| v.as_bool()).unwrap_or(false);
+        let omit_command = cmd
+            .get("omitCommand")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let arg_commands = cmd.get("commands").and_then(|v| v.as_array()).map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str())
                 .map(commands::shell_words_split)
                 .collect::<Vec<Vec<String>>>()
         });
-        run_batch(&mut flags, bail, arg_commands);
+        run_batch(&mut flags, bail, omit_command, arg_commands);
         return;
     }
 
@@ -2198,24 +2203,32 @@ fn execute_cli_command(
     Ok(resp)
 }
 
-/// Execute the existing reader and policy gates without a daemon or browser.
-/// Only a pending confirmation needs a daemon to preserve the two-call flow.
+/// Execute an explicit URL read without launching or reconfiguring a browser.
+/// A running daemon owns the session's allowlist and policy, so it performs the
+/// read; otherwise the reader runs locally. Only a pending confirmation needs a
+/// new daemon, to preserve the two-call flow.
 fn execute_url_read(mut cmd: serde_json::Value, flags: &Flags) -> Result<Response, String> {
+    if let Some(path) = flags.action_policy.as_deref() {
+        // Any daemon re-reads this file on every run, from its own cwd.
+        let path = std::path::absolute(path).map_err(|e| format!("Invalid policy path: {e}"))?;
+        cmd["actionPolicy"] = json!(path.to_string_lossy());
+    }
+    if flags.confirm_actions.as_deref().is_some_and(|actions| {
+        actions
+            .split(',')
+            .any(|a| a.trim().eq_ignore_ascii_case("read"))
+    }) {
+        cmd["requireConfirmation"] = json!(true);
+    }
+    // Transport failures stay errors: an unrestricted local read could bypass
+    // the running daemon's allowlist or policy.
+    if connection::existing_daemon(&flags.session)? {
+        return send_command(cmd, &flags.session);
+    }
+
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let mut state = native::actions::DaemonState::new();
-    if let Some(path) = flags.action_policy.as_deref() {
-        state.policy = Some(native::policy::ActionPolicy::load(path)?);
-    }
-    if let Some(actions) = flags.confirm_actions.as_deref() {
-        state.confirm_actions = Some(native::policy::ConfirmActions {
-            categories: actions
-                .split(',')
-                .map(|s| s.trim().to_lowercase())
-                .collect(),
-        });
-    }
     // The parser already stamped this invocation's merged domain allowlist.
-    // There is no live daemon state to inherit for a standalone HTTP read.
     let response = rt.block_on(async {
         *state.domain_filter.write().await = None;
         native::actions::execute_command(&cmd, &mut state).await
@@ -2225,7 +2238,7 @@ fn execute_url_read(mut cmd: serde_json::Value, flags: &Flags) -> Result<Respons
         return Ok(resp);
     }
 
-    // Carry the policy's requirement to the normal pending-confirmation gate.
+    // Carry the local requirement to the normal pending-confirmation gate.
     // The transport checks protocol support on the same socket before sending it.
     cmd["requireConfirmation"] = json!(true);
     connection::ensure_daemon_without_reconfigure(
@@ -2291,7 +2304,13 @@ fn read_batch_stdin(flags: &Flags) -> Vec<Vec<String>> {
     }
 }
 
-fn run_batch(flags: &mut Flags, bail: bool, arg_commands: Option<Vec<Vec<String>>>) {
+/// Runs a batch, optionally omitting command arrays without redacting errors or response data.
+fn run_batch(
+    flags: &mut Flags,
+    bail: bool,
+    omit_command: bool,
+    arg_commands: Option<Vec<Vec<String>>>,
+) {
     let commands: Vec<Vec<String>> = arg_commands.unwrap_or_else(|| read_batch_stdin(flags));
 
     if commands.is_empty() {
@@ -2317,11 +2336,10 @@ fn run_batch(flags: &mut Flags, bail: bool, arg_commands: Option<Vec<Vec<String>
             Err(e) => {
                 had_error = true;
                 if flags.json {
-                    results.push(json!({
-                        "command": cmd_args,
-                        "success": false,
-                        "error": e.format(),
-                    }));
+                    let mut result = batch_result_identity(i, cmd_args, omit_command);
+                    result["success"] = json!(false);
+                    result["error"] = json!(e.format());
+                    results.push(result);
                     if bail {
                         break;
                     }
@@ -2346,12 +2364,10 @@ fn run_batch(flags: &mut Flags, bail: bool, arg_commands: Option<Vec<Vec<String>
         match execute_cli_command(parsed, flags, &mut launch_configured) {
             Ok(resp) => {
                 if flags.json {
-                    let mut result = json!({
-                        "command": cmd_args,
-                        "success": resp.success,
-                        "result": resp.data,
-                        "error": resp.error,
-                    });
+                    let mut result = batch_result_identity(i, cmd_args, omit_command);
+                    result["success"] = json!(resp.success);
+                    result["result"] = json!(resp.data);
+                    result["error"] = json!(resp.error);
                     // Match the single-command `Response` serialization,
                     // which only emits `code` when set (e.g. `tab_gone`).
                     // Without this, machine-readable error codes are
@@ -2384,11 +2400,10 @@ fn run_batch(flags: &mut Flags, bail: bool, arg_commands: Option<Vec<Vec<String>
             Err(e) => {
                 had_error = true;
                 if flags.json {
-                    results.push(json!({
-                        "command": cmd_args,
-                        "success": false,
-                        "error": e.to_string(),
-                    }));
+                    let mut result = batch_result_identity(i, cmd_args, omit_command);
+                    result["success"] = json!(false);
+                    result["error"] = json!(e.to_string());
+                    results.push(result);
                     if bail {
                         break;
                     }
@@ -2411,6 +2426,18 @@ fn run_batch(flags: &mut Flags, bail: bool, arg_commands: Option<Vec<Vec<String>
 
     if had_error {
         exit(1);
+    }
+}
+
+fn batch_result_identity(
+    index: usize,
+    command: &[String],
+    omit_command: bool,
+) -> serde_json::Value {
+    if omit_command {
+        json!({ "index": index })
+    } else {
+        json!({ "command": command })
     }
 }
 

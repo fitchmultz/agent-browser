@@ -218,7 +218,7 @@ agent-browser read https://example.com/article --json
 
 Explicit URL reads run HTTP directly without launching, reconnecting, or reconfiguring a browser, including in batches. Omit the URL to read the rendered DOM of the active tab in the current browser session, including browser auth state and client-side updates. Explicit URL reads send `Accept: text/markdown` by default, try the same URL with `.md` appended when the first response is not markdown, walk ancestor paths toward `/` to find the nearest `llms.txt` for a matching docs link, print markdown or plain text when available, and fall back to readable text extracted from HTML. `--llms` and `--require-md` with no URL use the active tab URL because they depend on HTTP resources. `read` does not read `llms-full.txt` unless you ask for it.
 
-Ordinary URL reads do not need a daemon. They use current CLI/config headers, domain rules, and action policy, plus standard HTTP proxy environment variables, not browser cookies or profile settings. If policy requires a two-call `read` → `confirm` workflow, a browserless daemon holds the pending command; an existing daemon is reused without reconfiguration. Mixed batches apply browser launch options once, when the first browser-dependent row is reached.
+Ordinary URL reads do not start a daemon. When the session already has one, the read runs there without browser setup, so that daemon's allowed domains and action policy also apply; an unreachable or mismatched daemon fails the read rather than reading without them. Reads use current CLI/config headers, domain rules, and action policy, plus standard HTTP proxy environment variables, not browser cookies or profile settings. If policy requires a two-call `read` → `confirm` workflow, a browserless daemon holds the pending command; an existing daemon is reused without reconfiguration. The CLI's policy file is read again when the pending read is confirmed, so a revoked permission still blocks it. Mixed batches apply browser launch options once, when the first browser-dependent row is reached.
 
 The read-confirmation bridge checks `runtime.capabilities.readRequiresConfirmation` on the same connection before queuing a read. Equal version labels are not proof of support; an unsupported daemon receives no read request and remains unchanged. Only explicit-URL HTTP confirmation prompts carry `data.capabilities.readRequiresConfirmation: true`. `confirm` and `deny` require the exact returned confirmation ID; a stale ID cannot execute or discard a newer pending action. Bare DOM read prompts do not carry the HTTP marker.
 
@@ -303,7 +303,11 @@ echo '[
   ["click", "@e1"],
   ["screenshot", "result.png"]
 ]' | agent-browser batch --json
+
+echo '[["fill", "#password", "secret"]]' | agent-browser batch --json --omit-command
 ```
+
+With `--json`, `--omit-command` replaces each `command` array with a stable zero-based `index` field on success, failure, or `--bail`; default output is unchanged. This only removes command arrays and does not make output safe for secrets. Errors and response data are unchanged: `type` echoes typed text, and `get value`/`eval` may return input values. The MCP `agent_browser_batch` tool accepts `omitCommand: true`.
 
 ### Clipboard
 
@@ -470,6 +474,8 @@ agent-browser state clear [name]      # Clear states for session
 agent-browser state clear --all       # Clear all saved states
 agent-browser state clean --older-than <days>  # Delete old states
 ```
+
+Saved localStorage and sessionStorage are written through Chrome DevTools, not page JavaScript, and only while the page is on the saved origin. If an origin redirects elsewhere or fails to load, its storage is skipped, the rest still loads, and `state load` lists it under `skippedOrigins`. For `--state` and `--restore` at launch, `session info` lists it under `restoreSkippedOrigins`.
 
 With recording `--cursor`, the pointer and click ripple render with the page, keeping drags synchronized in every captured frame. The temporary overlay is inert, hidden from accessibility snapshots, and removed when recording stops. Screenshots taken during the recording include it.
 
@@ -781,8 +787,9 @@ With `--pin-tab`:
 - If the bound tab is closed, commands fail with a `tab_gone` error (exit code 1) instead of silently acting on another tab. JSON responses carry `"code": "tab_gone"` and recovery metadata in `data.targetId` plus optional `data.lastUrl`
 - `tab list`, `tab new`, and `tab <ref>` still work in that state, so an agent can recover by binding a new tab
 - Tabs opened by other sessions or the user never steal the pinned session's active tab
+- Another session cannot take a pinned tab with `tab <ref>` while the pinning session is running; the switch fails with `tab_locked` naming the owner
 
-The flag is sticky per session: pass it once and later commands and daemon restarts keep the strict semantics. Pass `--no-pin-tab` to explicitly turn the pin off again.
+The flag is sticky per session: pass it once and later commands keep the strict semantics. Daemon restarts keep the pin; an explicit `close` releases it so other sessions can take the tab, and the next `--pin-tab` command pins again. Pass `--no-pin-tab` to explicitly turn the pin off again.
 
 `data.lastUrl` is emitted only for sanitized HTTP(S) URLs and `about:blank`. HTTP(S) credentials, query strings, and fragments are removed, and opaque URLs such as `data:` are omitted. Batch output exposes the same object as `result`.
 
@@ -1255,6 +1262,8 @@ export AGENT_BROWSER_DEFAULT_TIMEOUT=45000
 ```
 
 > **Note:** Setting this above 30000 (30s) may cause EAGAIN errors on slow operations because the CLI's read timeout will expire before the daemon responds. Read-only commands (`snapshot`, `url`, `get text`, ...) are retried automatically. A command that changes the page or launches the browser is not re-sent once the daemon received it, since it may already have run; it fails with code `outcome_unknown` instead.
+
+> **Note:** If a command times out because the page stopped responding (for example a script stuck in `while(true){}`), the command fails with code `page_wedged`. When agent-browser launched the browser and the next command also times out, it replaces the stuck tab with a blank one, so later commands work again after you navigate. A page that recovers in between keeps its tab. With `--cdp` or `--auto-connect`, the tab belongs to your browser and is left as is. The tab is also left as is when an action policy denies `tab_new` or `tab_close` or requires confirmation for them.
 
 | Variable                        | Description                              |
 | ------------------------------- | ---------------------------------------- |

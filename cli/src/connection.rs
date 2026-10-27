@@ -1,3 +1,4 @@
+use crate::session_files::{remove_daemon_files, SessionFile};
 use crate::validation::sanitize_session_component;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -17,7 +18,9 @@ use std::os::unix::net::UnixStream;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::CloseHandle;
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 pub(crate) const INTERNAL_DAEMON_SHUTDOWN_ACTION: &str = "__agent_browser_internal_shutdown";
 
@@ -142,43 +145,24 @@ pub fn get_socket_dir() -> PathBuf {
 
 #[cfg(unix)]
 fn get_socket_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.sock", session))
+    SessionFile::Socket.path(session)
 }
 
 fn get_pid_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.pid", session))
+    SessionFile::Pid.path(session)
 }
 
 fn get_version_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.version", session))
+    SessionFile::Version.path(session)
 }
 
 fn get_config_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.config", session))
+    SessionFile::Config.path(session)
 }
 
-/// Clean up stale socket and PID files for a session
+/// Clean up the stale daemon files of a session
 pub fn cleanup_stale_files(session: &str) {
-    let pid_path = get_pid_path(session);
-    let _ = fs::remove_file(&pid_path);
-    let version_path = get_version_path(session);
-    let _ = fs::remove_file(&version_path);
-    let config_path = get_config_path(session);
-    let _ = fs::remove_file(&config_path);
-    let stream_path = get_socket_dir().join(format!("{}.stream", session));
-    let _ = fs::remove_file(&stream_path);
-
-    #[cfg(unix)]
-    {
-        let socket_path = get_socket_path(session);
-        let _ = fs::remove_file(&socket_path);
-    }
-
-    #[cfg(windows)]
-    {
-        let port_path = get_port_path(session);
-        let _ = fs::remove_file(&port_path);
-    }
+    remove_daemon_files(&get_socket_dir(), session);
 }
 
 /// Returns whether a process with the given PID is currently alive.
@@ -196,13 +180,16 @@ pub fn is_pid_alive(pid: u32) -> bool {
     }
     #[cfg(windows)]
     unsafe {
+        // An exited process can still be opened while any handle to it is
+        // open, so check that it has not exited.
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle != 0 {
-            CloseHandle(handle);
-            true
-        } else {
-            false
+        if handle == 0 {
+            return false;
         }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code) != 0;
+        CloseHandle(handle);
+        ok && code == windows_sys::Win32::Foundation::STILL_ACTIVE as u32
     }
 }
 
@@ -307,7 +294,7 @@ pub struct DaemonInventory {
 
 /// Read the session's `.version` sidecar if present and non-empty.
 pub fn read_session_version(session: &str) -> Option<String> {
-    let path = get_socket_dir().join(format!("{}.version", session));
+    let path = SessionFile::Version.path(session);
     fs::read_to_string(&path)
         .ok()
         .map(|s| s.trim().to_string())
@@ -401,7 +388,7 @@ pub fn walk_daemons() -> DaemonInventory {
                 if session_name.is_empty() {
                     continue;
                 }
-                let pid_path = socket_dir.join(format!("{}.pid", session_name));
+                let pid_path = SessionFile::Pid.path_in(&socket_dir, session_name);
                 if !pid_path.exists() {
                     cleanup_stale_files(session_name);
                     inventory.cleaned.push(CleanedSession {
@@ -418,7 +405,7 @@ pub fn walk_daemons() -> DaemonInventory {
 
 #[cfg(windows)]
 fn get_port_path(session: &str) -> PathBuf {
-    get_socket_dir().join(format!("{}.port", session))
+    SessionFile::Port.path(session)
 }
 
 #[cfg(windows)]
@@ -444,15 +431,14 @@ pub fn get_port_for_session(session: &str) -> u16 {
 }
 
 /// Read the actual daemon port from the `.port` file written by the daemon.
-/// Falls back to the hash-derived port if the file does not exist or is
-/// unreadable (e.g. daemon has not started yet).
+/// There is no hash-derived fallback: the hash ignores the socket directory,
+/// so before this session's daemon writes its file that port can belong to
+/// another daemon with the same session name.
 #[cfg(windows)]
-pub fn resolve_port(session: &str) -> u16 {
-    let port_path = get_port_path(session);
-    fs::read_to_string(&port_path)
+pub fn resolve_port(session: &str) -> Option<u16> {
+    fs::read_to_string(get_port_path(session))
         .ok()
         .and_then(|s| s.trim().parse::<u16>().ok())
-        .unwrap_or_else(|| get_port_for_session(session))
 }
 
 pub fn daemon_ready(session: &str) -> bool {
@@ -463,12 +449,13 @@ pub fn daemon_ready(session: &str) -> bool {
     }
     #[cfg(windows)]
     {
-        let port = resolve_port(session);
-        TcpStream::connect_timeout(
-            &format!("127.0.0.1:{}", port).parse().unwrap(),
-            Duration::from_millis(50),
-        )
-        .is_ok()
+        resolve_port(session).is_some_and(|port| {
+            TcpStream::connect_timeout(
+                &format!("127.0.0.1:{}", port).parse().unwrap(),
+                Duration::from_millis(50),
+            )
+            .is_ok()
+        })
     }
 }
 
@@ -878,11 +865,36 @@ pub fn ensure_daemon_without_reconfigure(
     ensure_daemon_inner(session, opts, false)
 }
 
+/// Whether `session` already has a daemon that owns its runtime restrictions.
+/// A daemon that cannot be used unchanged is an error, never "absent".
+pub fn existing_daemon(session: &str) -> Result<bool, String> {
+    if daemon_ready(session) {
+        if !daemon_version_matches(session) {
+            return Err("Running daemon has a different version; leaving it unchanged instead of restarting it".to_string());
+        }
+        return Ok(true);
+    }
+    if fs::read_to_string(get_pid_path(session))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .is_some_and(is_pid_alive)
+    {
+        return Err("Existing daemon is not reachable; leaving it unchanged".to_string());
+    }
+    Ok(false)
+}
+
 fn ensure_daemon_inner(
     session: &str,
     opts: &DaemonOptions,
     reconfigure: bool,
 ) -> Result<DaemonResult, String> {
+    if !reconfigure && existing_daemon(session)? {
+        return Ok(DaemonResult {
+            already_running: true,
+            restarted: false,
+        });
+    }
     let mut restarted = false;
 
     // Socket connectivity is the sole liveness check — no PID check — so
@@ -895,15 +907,6 @@ fn ensure_daemon_inner(
     // this check is handled at request time: callers respawn via
     // ensure_daemon when the request fails with daemon_unreachable().
     if daemon_ready(session) {
-        if !reconfigure {
-            if !daemon_version_matches(session) {
-                return Err("Running daemon has a different version; leaving it unchanged instead of restarting it for a read confirmation".to_string());
-            }
-            return Ok(DaemonResult {
-                already_running: true,
-                restarted: false,
-            });
-        }
         // Check version: if the running daemon is from a different CLI
         // version (e.g. after an upgrade), kill it and start a fresh one.
         if !daemon_version_matches(session) {
@@ -923,15 +926,6 @@ fn ensure_daemon_inner(
                 }
             }
         }
-    }
-
-    if !reconfigure
-        && fs::read_to_string(get_pid_path(session))
-            .ok()
-            .and_then(|s| s.trim().parse().ok())
-            .is_some_and(is_pid_alive)
-    {
-        return Err("Existing daemon is not reachable; leaving it unchanged".to_string());
     }
 
     // Clean up any stale socket/pid files before starting fresh
@@ -1099,12 +1093,12 @@ fn ensure_daemon_inner(
     }
 
     #[cfg(unix)]
-    let endpoint_info = format!(
-        "socket: {}",
-        get_socket_dir().join(format!("{}.sock", session)).display()
-    );
+    let endpoint_info = format!("socket: {}", SessionFile::Socket.path(session).display());
     #[cfg(windows)]
-    let endpoint_info = format!("port: 127.0.0.1:{}", resolve_port(session));
+    let endpoint_info = match resolve_port(session) {
+        Some(port) => format!("port: 127.0.0.1:{}", port),
+        None => format!("no port file in {}", get_socket_dir().display()),
+    };
 
     Err(format!("Daemon failed to start ({})", endpoint_info))
 }
@@ -1119,7 +1113,8 @@ fn connect(session: &str) -> Result<Connection, String> {
     }
     #[cfg(windows)]
     {
-        let port = resolve_port(session);
+        let port = resolve_port(session)
+            .ok_or_else(|| "Failed to connect: daemon has not written its port".to_string())?;
         TcpStream::connect(format!("127.0.0.1:{}", port))
             .map(Connection::Tcp)
             .map_err(|e| format!("Failed to connect: {}", e))
@@ -1281,9 +1276,18 @@ pub(crate) fn read_timeout_for(cmd: &Value) -> Duration {
 
 fn send_command_once(cmd: &Value, session: &str) -> Result<Response, SendError> {
     let mut stream = connect(session).map_err(SendError::NotSent)?;
-    if crate::read::is_explicit_url_read(cmd) && cmd["requireConfirmation"] == true {
+    if crate::read::is_explicit_url_read(cmd)
+        && (cmd["requireConfirmation"] == true || cmd.get("actionPolicy").is_some())
+    {
         // A source upgrade may retain the same version label. Negotiate on
         // this socket so a reconnect cannot send the read to an unchecked daemon.
+        // Each feature has its own marker: an older daemon can support ID-checked
+        // confirmations without supporting per-read action policies.
+        let needed = if cmd.get("actionPolicy").is_some() {
+            "readActionPolicy"
+        } else {
+            "readRequiresConfirmation"
+        };
         let info = exchange_command(
             &mut stream,
             &json!({
@@ -1301,9 +1305,11 @@ fn send_command_once(cmd: &Value, session: &str) -> Result<Response, SendError> 
             || !info
                 .data
                 .as_ref()
-                .is_some_and(|data| data["capabilities"]["readRequiresConfirmation"] == true)
+                .is_some_and(|data| data["capabilities"][needed] == true)
         {
-            return Err(SendError::NotSent("Running daemon does not support ID-checked HTTP read confirmations; no read was sent. Use a separate session with a compatible daemon.".to_string()));
+            return Err(SendError::NotSent(format!(
+                "Running daemon does not support {needed} for HTTP reads; no read was sent. Use a separate session with a compatible daemon."
+            )));
         }
     }
     exchange_command(&mut stream, cmd)

@@ -351,6 +351,78 @@ fn session_info_preserves_transport_errors() {
         .is_some_and(|error| !error.is_empty()));
 }
 
+#[cfg(unix)]
+#[test]
+fn explicit_read_fails_closed_when_the_session_daemon_is_unreachable() {
+    let fixture = Fixture::new();
+    let run = fixture.dir.path().join("run");
+    std::fs::create_dir(&run).unwrap();
+    std::fs::write(run.join("e.pid"), std::process::id().to_string()).unwrap();
+    let response = fixture.output(&["read", &fixture.url("/docs")]);
+    assert!(!response.status.success());
+    assert!(String::from_utf8_lossy(&response.stdout).contains("not reachable"));
+    assert!(fixture.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn read_policy_file_is_rechecked_when_a_pending_read_is_confirmed() {
+    let fixture = Fixture::new();
+    let policy = fixture.dir.path().join("policy.json");
+    std::fs::write(&policy, r#"{"confirm":["read"]}"#).unwrap();
+    let cold = fixture.run(&[
+        "--action-policy",
+        "policy.json",
+        "read",
+        &fixture.url("/kept"),
+    ]);
+    assert_eq!(cold["data"]["confirmation_required"], true);
+    assert!(fixture.requests.lock().unwrap().is_empty());
+    let confirmed = fixture.run(&["confirm", cold["data"]["confirmation_id"].as_str().unwrap()]);
+    assert_eq!(confirmed["data"]["result"]["data"]["content"], MARKDOWN);
+    assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+
+    // The daemon is now running without the policy; the read still carries it.
+    let warm = fixture.run(&[
+        "--action-policy",
+        "policy.json",
+        "read",
+        &fixture.url("/revoked"),
+    ]);
+    assert_eq!(warm["data"]["confirmation_required"], true);
+    std::fs::write(&policy, r#"{"deny":["read"]}"#).unwrap();
+    let revoked = fixture.output(&["confirm", warm["data"]["confirmation_id"].as_str().unwrap()]);
+    let revoked: Value = serde_json::from_slice(&revoked.stdout).unwrap();
+    assert!(
+        revoked.to_string().contains("denied by policy"),
+        "{revoked}"
+    );
+    assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+    assert_eq!(fixture.info()["runtime"]["browserLaunched"], false);
+}
+
+#[test]
+#[ignore = "requires Chrome; uses a generated browser and loopback page"]
+fn e2e_explicit_reads_keep_a_running_session_allowlist() {
+    let fixture = Fixture::new();
+    fixture.run(&[
+        "--allowed-domains",
+        "127.0.0.1",
+        "open",
+        &fixture.url("/page"),
+    ]);
+    let allowed = fixture.run(&["read", &fixture.url("/allowed")]);
+    assert_eq!(allowed["data"]["content"], MARKDOWN);
+    let denied = fixture.output(&["read", &format!("http://localhost:{}/denied", fixture.port)]);
+    assert!(!denied.status.success());
+    assert!(String::from_utf8_lossy(&denied.stdout).contains("allowed domains"));
+    assert!(!fixture
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|request| request.contains("/denied")));
+}
+
 #[test]
 fn read_confirmation_does_not_restart_a_mismatched_daemon() {
     let fixture = Fixture::new();
@@ -438,6 +510,70 @@ fn read_confirmation_requires_capability_on_each_connection() {
         );
         assert!(!run.join("e.config").exists());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn read_policy_requires_its_own_daemon_capability() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.dir.path().join("policy.json"),
+        r#"{"deny":["read"]}"#,
+    )
+    .unwrap();
+    let run = fixture.dir.path().join("run");
+    std::fs::create_dir(&run).unwrap();
+    std::fs::write(run.join("e.pid"), std::process::id().to_string()).unwrap();
+    std::fs::write(run.join("e.version"), env!("CARGO_PKG_VERSION")).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(run.join("e.sock")).unwrap();
+    let responder = thread::spawn(move || loop {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let mut line = String::new();
+        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+        if reader.read_line(&mut line).unwrap_or(0) == 0 {
+            continue;
+        }
+        let capability: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(capability["action"], "session_info");
+        assert_eq!(capability["capabilitiesOnly"], true);
+        writeln!(
+            stream,
+            "{}",
+            json!({"success": true, "data": {
+                "capabilities": {"readRequiresConfirmation": true}
+            }})
+        )
+        .unwrap();
+        line.clear();
+        return match reader.read_line(&mut line) {
+            Ok(0) => None,
+            Ok(_) => {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                writeln!(stream, "{}", json!({"success": true, "data": {}})).unwrap();
+                Some(request)
+            }
+            Err(error) => panic!("failed to observe next daemon request: {error}"),
+        };
+    });
+
+    let output = fixture.output(&[
+        "--action-policy",
+        "policy.json",
+        "read",
+        &fixture.url("/denied"),
+    ]);
+    let sent = responder.join().unwrap();
+    assert!(
+        !output.status.success(),
+        "old daemon accepted policy-gated read: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        sent.is_none(),
+        "read reached an unsupported daemon: {sent:?}"
+    );
+    assert!(fixture.requests.lock().unwrap().is_empty());
 }
 
 #[test]

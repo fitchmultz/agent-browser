@@ -83,7 +83,7 @@ agent-browser read https://example.com/article --json
 
 Explicit URL reads run HTTP directly without launching, reconnecting, or reconfiguring a browser, including in batches. Omit the URL to read the rendered DOM of the active tab in the current browser session, including browser auth state and client-side updates. Explicit URL reads send `Accept: text/markdown` by default, try the same URL with `.md` appended when the first response is not markdown, walk ancestor paths toward `/` to find the nearest `llms.txt` for a matching docs link, print markdown or plain text when available, and fall back to readable text extracted from HTML. `--llms` and `--require-md` with no URL use the active tab URL because they depend on HTTP resources. `read` does not read `llms-full.txt` unless you ask for it.
 
-Ordinary URL reads do not need a daemon. They use current CLI/config headers, domain rules, and action policy, plus standard HTTP proxy environment variables, not browser cookies or profile settings. If policy requires a two-call `read` → `confirm` workflow, a browserless daemon holds the pending command; an existing daemon is reused without reconfiguration. Mixed batches apply browser launch options once, when the first browser-dependent row is reached. Before queuing a confirmation-required HTTP read, the CLI checks explicit protocol support on the same connection. An unsupported runtime, even with the same version label, receives no read request and remains unchanged.
+Ordinary URL reads do not start a daemon. When the session already has one, the read runs there without browser setup, so that daemon's allowed domains and action policy also apply; an unreachable or mismatched daemon fails the read rather than reading without them. Reads use current CLI/config headers, domain rules, and action policy, plus standard HTTP proxy environment variables, not browser cookies or profile settings. If policy requires a two-call `read` → `confirm` workflow, a browserless daemon holds the pending command; an existing daemon is reused without reconfiguration. The CLI's policy file is read again when the pending read is confirmed, so a revoked permission still blocks it. Mixed batches apply browser launch options once, when the first browser-dependent row is reached. Before queuing a confirmation-required HTTP read, the CLI checks explicit protocol support on the same connection. An unsupported runtime, even with the same version label, receives no read request and remains unchanged.
 
 Options: `--raw` prints the response body without HTML extraction, `--require-md` fails unless the server returns `Content-Type: text/markdown`, `--outline` prints a compact heading outline for one page, `--llms index` prints a compact nearest-ancestor `llms.txt` link list, `--llms full` reads the nearest-ancestor `llms-full.txt`, `--filter <text>` narrows page sections, llms links/sections, or outline headings, and `--timeout <ms>` changes the request timeout. Global safeguards such as `--allowed-domains`, `--content-boundaries`, and `--max-output` also apply to read fetches and output.
 
@@ -153,6 +153,8 @@ After a page change, prefer a selector, text, URL, or JavaScript condition that 
 agent-browser download <sel> <path>   # Click element to trigger download
 agent-browser wait --download [path]  # Wait for any download to complete
 ```
+
+`wait --download` returns the oldest download not yet claimed by an earlier wait, including one that finished before the command ran, so it can follow the command that triggered it. With `[path]`, the file is moved there; without it, the output is where the browser saved it. The move only applies to a browser agent-browser launched: over `--cdp`, `--auto-connect`, or a provider, the saved path comes from the remote endpoint, so `[path]` is rejected.
 
 Use `--download-path <dir>` (or `AGENT_BROWSER_DOWNLOAD_PATH` env) to set a default download directory. Without it, downloads go to a temporary directory that is deleted when the browser closes.
 
@@ -675,6 +677,8 @@ echo '[
   ["click", "@e1"],
   ["screenshot", "result.png"]
 ]' | agent-browser batch --json
+
+echo '[["fill", "#password", "secret"]]' | agent-browser batch --json --omit-command
 ```
 
 <table>
@@ -684,8 +688,11 @@ echo '[
   <tbody>
     <tr><td><code>--bail</code></td><td>Stop on first error (default: continue all commands)</td></tr>
     <tr><td><code>--json</code></td><td>Output results as a JSON array</td></tr>
+    <tr><td><code>--omit-command</code></td><td>With <code>--json</code>, replace each <code>command</code> array with a stable zero-based <code>index</code> field</td></tr>
   </tbody>
 </table>
+
+With `--json --omit-command`, rows use a stable zero-based `index` field on success, failure, or `--bail`; default JSON output keeps the `command` field. This only removes command arrays and does not make output safe for secrets. Errors and response data are unchanged: `type` echoes typed text, and `get value`/`eval` may return input values. The MCP `agent_browser_batch` tool accepts `omitCommand: true`.
 
 ## MCP server
 
