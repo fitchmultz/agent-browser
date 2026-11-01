@@ -1060,6 +1060,7 @@ fn chrome_launch_error(message: &str, stderr_lines: &[String]) -> String {
     )
 }
 
+/// Find an installed browser, including PATH-based Chromium on native Android.
 pub fn find_chrome() -> Option<PathBuf> {
     // 1. Check Chrome downloaded by `agent-browser install`
     if let Some(p) = crate::install::find_installed_chrome() {
@@ -1095,7 +1096,7 @@ pub fn find_chrome() -> Option<PathBuf> {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         let candidates = [
             "google-chrome",
@@ -1774,6 +1775,7 @@ fn build_puppeteer_binary_path(version_dir: &Path) -> PathBuf {
 
 /// Search Playwright's browser cache for a Chromium binary.
 /// Legacy fallback for users who previously installed Chromium via Playwright.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn find_playwright_chromium() -> Option<PathBuf> {
     let mut search_dirs = Vec::new();
 
@@ -1816,6 +1818,11 @@ fn find_playwright_chromium() -> Option<PathBuf> {
         }
     }
 
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn find_playwright_chromium() -> Option<PathBuf> {
     None
 }
 

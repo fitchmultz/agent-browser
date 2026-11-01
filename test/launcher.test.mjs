@@ -34,11 +34,11 @@ syncBuiltinESMExports();
 await import('./bin/agent-browser.js');
 `,
   );
-  for (const { name, marker } of binaries) {
+  for (const { name, marker, empty } of binaries) {
     const fakeBinaryPath = join(binDirectory, name);
     await writeFile(
       fakeBinaryPath,
-      `#!/bin/sh
+      empty ? '' : `#!/bin/sh
 printf '%s\\n' ${JSON.stringify(marker)} "$@"
 `,
     );
@@ -99,17 +99,35 @@ test('Windows ARM64 launcher runs when only a source-built native executable exi
   assert.doesNotMatch(result.stderr, /No binary found/);
 });
 
-test('macOS ARM64 launcher keeps selecting the ARM64 executable', async (t) => {
-  const args = ['--version'];
+for (const platform of ['darwin', 'android']) {
+  test(`${platform} ARM64 launcher selects the native executable`, async (t) => {
+    const args = ['--version', 'argument with spaces', ''];
+    const result = await runLauncher(t, {
+      platform,
+      arch: 'arm64',
+      binaries: [
+        { name: `agent-browser-${platform}-arm64`, marker: 'arm64-binary-ran' },
+      ],
+      args,
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.split('\n').slice(0, -1), ['arm64-binary-ran', ...args]);
+  });
+}
+
+test('Android launcher rejects the empty binary left by a failed download', async (t) => {
   const result = await runLauncher(t, {
-    platform: 'darwin',
+    platform: 'android',
     arch: 'arm64',
     binaries: [
-      { name: 'agent-browser-darwin-arm64', marker: 'arm64-binary-ran' },
+      { name: 'agent-browser-android-arm64', empty: true },
+      { name: 'agent-browser-linux-musl-arm64', marker: 'wrong-platform-binary' },
     ],
-    args,
+    args: ['--version'],
   });
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split('\n'), ['arm64-binary-ran', ...args]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /No binary found for android-arm64/);
+  assert.equal(result.stdout, '');
 });
