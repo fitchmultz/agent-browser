@@ -3239,6 +3239,10 @@ Usage: agent-browser install [--with-deps]
 
 Downloads and installs browser binaries required for automation.
 
+Native Android/Termux builds use Termux's Chromium from PATH instead.
+Install it with `pkg install x11-repo` and `pkg install chromium which`;
+do not use this command to download Chrome for Testing on Android.
+
 On macOS versions below 13, the command stops before downloading Chrome for
 Testing and prints instructions to update macOS or install Chrome manually. If
 `sw_vers -productVersion` is unavailable, exits with an error, returns no

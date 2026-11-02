@@ -9,7 +9,7 @@
  * - Mac/Linux: Replaces symlink to point to native binary
  */
 
-import { existsSync, mkdirSync, chmodSync, createWriteStream, unlinkSync, writeFileSync, symlinkSync, lstatSync } from 'fs';
+import { existsSync, mkdirSync, chmodSync, createWriteStream, unlinkSync, writeFileSync, symlinkSync, lstatSync, realpathSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { platform, arch } from 'os';
@@ -110,7 +110,7 @@ function writeInstallMethod() {
 
 async function main() {
   // Check if binary already exists
-  if (existsSync(binaryPath)) {
+  if (existsSync(binaryPath) && statSync(binaryPath).size > 0) {
     // Ensure binary is executable (npm doesn't preserve execute bit)
     if (platform() !== 'win32') {
       chmodSync(binaryPath, 0o755);
@@ -123,6 +123,12 @@ async function main() {
     await fixGlobalInstallBin();
 
     showInstallReminder();
+    return;
+  }
+
+  if (platform() === 'android') {
+    console.log('No prebuilt Android binary is published. Build from source in Termux:');
+    console.log('  https://agent-browser.dev/installation#androidtermux');
     return;
   }
 
@@ -173,7 +179,7 @@ function findSystemChrome() {
     ];
     return candidates.find(p => existsSync(p)) || null;
   }
-  if (os === 'linux') {
+  if (os === 'linux' || os === 'android') {
     const names = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'];
     for (const name of names) {
       try {
@@ -253,6 +259,9 @@ async function fixUnixSymlink() {
     const stat = lstatSync(symlinkPath);
     if (!stat.isSymbolicLink()) {
       return; // Not a symlink, don't touch it
+    }
+    if (realpathSync(symlinkPath) !== realpathSync(join(binDir, 'agent-browser.js'))) {
+      return; // A source or local install does not own another package's global link.
     }
   } catch {
     return; // Symlink doesn't exist, not a global install

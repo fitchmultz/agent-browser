@@ -9,7 +9,7 @@
  */
 
 import { spawn, execSync } from 'child_process';
-import { existsSync, accessSync, chmodSync, constants } from 'fs';
+import { existsSync, accessSync, chmodSync, constants, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { platform, arch } from 'os';
@@ -39,6 +39,9 @@ function getBinaryName() {
       break;
     case 'linux':
       osKey = isMusl() ? 'linux-musl' : 'linux';
+      break;
+    case 'android':
+      osKey = 'android';
       break;
     case 'win32':
       osKey = 'win32';
@@ -85,7 +88,7 @@ function main() {
 
   const binaryPath = join(__dirname, binaryName);
 
-  if (!existsSync(binaryPath)) {
+  if (!existsSync(binaryPath) || statSync(binaryPath).size === 0) {
     console.error(`Error: No binary found for ${platform()}-${arch()}`);
     console.error(`Expected: ${binaryPath}`);
     console.error('');

@@ -70,6 +70,8 @@ agent-browser screenshot result.png
 
 On Linux, `agent-browser install --with-deps` calls the detected package manager directly when run as root and uses `sudo` for non-root users. If you are not root and `sudo` is unavailable, it reports that root privileges or `sudo` are required.
 
+On Android/Termux, use a native Android source build and Termux's Chromium from `PATH`. Follow the [Android source-build instructions](https://agent-browser.dev/installation#androidtermux), including dashboard assets. No prebuilt Android release is published, and the Linux-musl executable cannot resolve HTTP hostnames on Termux. Do not run `agent-browser install` to download Chrome for Testing there.
+
 The browser stays running across commands so these feel like a single session. By default, an inactive daemon saves configured restore state, closes its headless browser, and exits after one hour; the next command starts it again. Without `--restore` or another restore key, shutdown discards transient browser state and open tabs. Dashboard mouse, keyboard, and touch input count as activity. Headed browsers, Safari and iOS WebDriver sessions, and user-attached browsers are exempt from the default; provider-owned cloud browsers are not. Use `--idle-timeout <time>` or `AGENT_BROWSER_IDLE_TIMEOUT_MS` to tune the timeout, and use `0` to disable it. Still run `agent-browser close` (or `close --all`) when you're done.
 
 On macOS versions below 13, `agent-browser install` stops before downloading Chrome for Testing and prints instructions to update macOS or install Chrome manually. If `sw_vers -productVersion` is unavailable, exits with an error, returns no version, or returns a malformed version, the command reports a detection error and stops before making a network request.

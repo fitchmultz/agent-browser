@@ -60,6 +60,12 @@ pnpm link --global  # Makes agent-browser available globally
 agent-browser install
 ```
 
+### Android/Termux
+
+Android ARM64 uses a native source build and Termux's Chromium. No prebuilt Android executable is published. The Linux-musl executable is not an Android replacement: its system resolver cannot resolve HTTP hostnames on Termux.
+
+Follow the [Android source-build instructions](https://agent-browser.dev/installation#androidtermux), including the dashboard build. Rebuild after updating the source instead of using the prebuilt npm release.
+
 ### Linux Dependencies
 
 On Linux, install system dependencies:
@@ -1803,6 +1809,7 @@ The daemon starts automatically on first command and persists between commands f
 | Linux ARM64 | Native Rust |
 | Linux x64   | Native Rust |
 | Windows x64 | Native Rust |
+| Android ARM64 | Source build with Termux Chromium |
 
 ## Usage with AI Agents
 
