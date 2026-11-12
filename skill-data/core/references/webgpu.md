@@ -15,17 +15,16 @@ agent-browser screenshot app.png
 - everywhere: `--enable-unsafe-webgpu` (WebGPU is hidden in headless/blocklisted environments by default)
 - Linux only: `--enable-features=Vulkan --use-angle=vulkan --use-vulkan=swiftshader --use-webgpu-adapter=swiftshader --disable-vulkan-surface` — routes WebGPU through SwiftShader's software Vulkan, so it works with no GPU (containers, CI)
 
-macOS uses the hardware Metal backend; Windows uses D3D. Nothing extra to install on either.
+Apple Silicon macOS uses the hardware Metal backend. Nothing extra to install.
 
 ## Platform matrix (verified)
 
 | Platform | WebGPU rendering (headless) | Screenshots of WebGPU canvases |
 |---|---|---|
 | macOS | works | works headless |
-| Windows | works (hardware D3D) | **headless captures black** — use `--headed` on a logged-in desktop |
 | Linux | works (SwiftShader Vulkan) | headless capture not supported upstream — add `--headed` (virtual display starts automatically) |
 
-The Windows/Linux screenshot gap is an upstream headless-Chrome limitation: WebGPU canvas *presentation* never reaches the headless compositor, even though rendering itself works (verified by pixel readback). It is not an agent-browser or flag problem — no known flag combination fixes it. Rendering, `eval`-based pixel readbacks, and compute all work headless everywhere.
+The Linux screenshot gap is an upstream headless-Chrome limitation: WebGPU canvas *presentation* never reaches the headless compositor, even though rendering itself works (verified by pixel readback). It is not an agent-browser or flag problem — no known flag combination fixes it. Rendering, `eval`-based pixel readbacks, and compute all work headless everywhere.
 
 On Linux, `--headed` is all you need even on displayless servers and containers: when no `DISPLAY` is set and Xvfb is installed (`apt-get install -y xvfb`), agent-browser starts a private virtual display for the browser and tears it down with it. Set `AGENT_BROWSER_NO_XVFB=1` to opt out.
 
@@ -33,8 +32,6 @@ On Linux, `--headed` is all you need even on displayless servers and containers:
 agent-browser --webgpu --headed open https://my-webgpu-app.example.com
 agent-browser screenshot app.png   # real WebGPU pixels, no display hardware
 ```
-
-On Windows, the session must run headed in a logged-in desktop session (an ssh/Session-0 context is not enough — schedule the launch on the interactive desktop, e.g. `schtasks /IT`, then drive it from anywhere).
 
 ## Verify the pipeline
 
@@ -45,7 +42,7 @@ agent-browser doctor --webgpu
 This launches a scratch session with the preset and pixel-checks two stages separately:
 
 1. **render** — requests an adapter (with retries; a cold Chrome returns null while the GPU process starts), clears an offscreen texture to red through a real render pass, and reads the buffer back. Proves WebGPU works at all, and reports the adapter (e.g. `nvidia ampere`, `apple metal-3`, `google swiftshader`).
-2. **screenshot** — decodes an actual screenshot of a presenting canvas. Proves the capture path. Expected to fail headless on Windows/Linux (see matrix); the failure message says so and points at `--headed`.
+2. **screenshot** — decodes an actual screenshot of a presenting canvas. Proves the capture path. Expected to fail headless on Linux (see matrix); the failure message says so and points at `--headed`.
 
 Add `--headed` (`agent-browser doctor --webgpu --headed`) to validate the capture path itself — on displayless Linux the probe starts its own Xvfb, so both checks should pass.
 
@@ -100,7 +97,7 @@ agent-browser eval "document.querySelector('canvas').getContext('webgpu') ? 'web
 
 ## Reading pixels back inside the page
 
-If you `eval` your own WebGPU readback, don't snapshot the canvas (`drawImage(webgpuCanvas, ...)`) — it depends on presentation timing and reads transparent black on Windows even when rendering works. Render to an offscreen texture and read it back deterministically:
+If you `eval` your own WebGPU readback, don't snapshot the canvas (`drawImage(webgpuCanvas, ...)`) — it depends on presentation timing. Render to an offscreen texture and read it back deterministically:
 
 ```js
 const tex = device.createTexture({ size: [w, h], format: 'rgba8unorm',
@@ -115,4 +112,4 @@ This works headless on every platform (it's how `doctor --webgpu` proves renderi
 
 ## Performance expectations
 
-SwiftShader is a CPU rasterizer. Simple scenes render fine; heavy three.js scenes are single-digit FPS. For screenshots that's usually irrelevant; for smooth video capture of complex scenes, use hardware (macOS/Windows, or Linux with `--use-vulkan=native,--use-webgpu-adapter=default` and real Vulkan drivers).
+SwiftShader is a CPU rasterizer. Simple scenes render fine; heavy three.js scenes are single-digit FPS. For screenshots that's usually irrelevant; for smooth video capture of complex scenes, use hardware (Apple Silicon macOS, or Linux with `--use-vulkan=native,--use-webgpu-adapter=default` and real Vulkan drivers).

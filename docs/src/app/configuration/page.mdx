@@ -133,7 +133,7 @@ Global launch, output, provider, and chat options can be set in the config file 
 }
 ```
 
-`caCert` imports the supplied CA certificate or PEM bundle into an isolated NSS database for locally launched Chromium on Linux. Hostname, validity period, and unrelated CA verification remain enabled. The CA remains active when later commands omit it. Setting different certificate content or `clearCaCert: true` relaunches Chromium without restarting the daemon. `agent-browser install --with-deps` installs the required `certutil`; otherwise install `libnss3-tools` on Debian/Ubuntu or `nss-tools` on RPM Linux. This initial implementation does not support Chrome profiles, CDP attach, providers, Lightpanda, macOS, or Windows.
+`caCert` imports the supplied CA certificate or PEM bundle into an isolated NSS database for locally launched Chromium on Linux. Hostname, validity period, and unrelated CA verification remain enabled. The CA remains active when later commands omit it. Setting different certificate content or `clearCaCert: true` relaunches Chromium without restarting the daemon. `agent-browser install --with-deps` installs the required `certutil`; otherwise install `libnss3-tools` on Debian/Ubuntu or `nss-tools` on RPM Linux. This initial implementation does not support Chrome profiles, CDP attach, providers, Lightpanda, or macOS.
 
 Without the CA certificate on hand, fall back to ignoring every certificate error, which is less secure:
 

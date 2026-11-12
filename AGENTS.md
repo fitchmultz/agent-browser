@@ -51,7 +51,7 @@ To prepare a release:
 5. Add a matching entry to `docs/src/app/changelog/page.mdx` at the top (below the `# Changelog` heading)
 6. Open a PR and merge to `main`
 
-When the PR merges, CI compares `package.json` version to what's on npm. If it differs, it builds all 7 platform binaries, publishes to npm, and creates the GitHub release automatically. The GitHub release body is extracted from the content between the `<!-- release:start -->` and `<!-- release:end -->` markers in `CHANGELOG.md`.
+When the PR merges, CI compares `package.json` version to what's on npm. If it differs, it builds all 5 Apple Silicon macOS and Linux binaries, publishes to npm, and creates the GitHub release automatically. The GitHub release body is extracted from the content between the `<!-- release:start -->` and `<!-- release:end -->` markers in `CHANGELOG.md`.
 
 ### Writing the changelog
 
@@ -127,68 +127,6 @@ The e2e tests live in `cli/src/native/e2e_tests.rs` and cover: launch/close, nav
 cd cli && cargo fmt -- --check   # Check formatting
 cd cli && cargo clippy            # Lint
 ```
-
-## Windows Debugging
-
-A remote Windows Server 2022 EC2 instance is available for debugging Windows-specific issues. It uses AWS Systems Manager (SSM) with no SSH or open ports. Commands run via `aws ssm send-command` and return stdout/stderr.
-
-### Prerequisites
-
-The instance must be provisioned first (one-time, by a human):
-
-```bash
-./scripts/windows-debug/provision.sh
-```
-
-Requires: AWS CLI v2 configured with `ec2:*`, `iam:CreateRole`, `iam:AttachRolePolicy`, `ssm:SendCommand`, `ssm:GetCommandInvocation` permissions and a default VPC.
-
-### Usage
-
-Start the instance (if stopped):
-
-```bash
-./scripts/windows-debug/start.sh
-```
-
-Run a command on Windows:
-
-```bash
-./scripts/windows-debug/run.sh "<powershell-command>"
-```
-
-Sync the current git branch and rebuild:
-
-```bash
-./scripts/windows-debug/sync.sh
-```
-
-Stop the instance when done (avoids cost):
-
-```bash
-./scripts/windows-debug/stop.sh
-```
-
-### Common Workflows
-
-Run unit tests on Windows:
-
-```bash
-./scripts/windows-debug/run.sh "cd C:\agent-browser && cargo test --manifest-path cli\Cargo.toml"
-```
-
-Run e2e tests on Windows:
-
-```bash
-./scripts/windows-debug/run.sh "cd C:\agent-browser && cargo test e2e --manifest-path cli\Cargo.toml -- --ignored --test-threads=1"
-```
-
-Check bootstrap progress (first boot only):
-
-```bash
-./scripts/windows-debug/run.sh "Get-Content C:\bootstrap.log"
-```
-
-The repo lives at `C:\agent-browser` on the instance. Rust, Git, and Chrome are pre-installed. The `run.sh` wrapper automatically adds cargo and git to PATH.
 
 <!-- opensrc:start -->
 

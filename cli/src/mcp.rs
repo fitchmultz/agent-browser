@@ -5,8 +5,6 @@
 //! so MCP behavior stays aligned with the normal CLI command surface. Daemon
 //! lifecycle settings, including the default idle timeout, use the same CLI
 //! parser and daemon as direct commands.
-//! Owned Windows Chrome uses the same private headless desktop and Job Object
-//! lifetime through MCP; headed and external-connection semantics are unchanged.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
@@ -770,7 +768,7 @@ fn tools() -> Vec<Value> {
         tool(
             TOOL_OPEN,
             "Open page",
-            "Launch the browser and optionally navigate to a URL. On Windows, owned headless Chrome uses a private desktop and its process tree closes with the daemon, including forced termination. Headed browsers use the interactive desktop. Successful navigation responses include WebMCP availability metadata when the page exposes allowed tools.",
+            "Launch the browser and optionally navigate to a URL. Successful navigation responses include WebMCP availability metadata when the page exposes allowed tools.",
             json!({
                 "url": { "type": "string", "description": "URL to open. Omit to launch about:blank." },
                 "headed": { "type": "boolean", "description": "Show the browser window. Explicit true/false overrides AGENT_BROWSER_HEADED and config; omit to use those defaults." },

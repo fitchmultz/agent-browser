@@ -32,9 +32,6 @@ The fastest way to authenticate is to reuse cookies from a Chrome session you ar
 
 # Linux
 google-chrome --remote-debugging-port=9222
-
-# Windows
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222
 ```
 
 Log in to your target site(s) in this Chrome window as you normally would.

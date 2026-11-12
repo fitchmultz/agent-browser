@@ -3958,9 +3958,7 @@ Configuration:
 
   Extensions from user and project configs are merged (not replaced).
 
-  On Windows, headless Chrome runs on a private desktop to prevent stray desktop
-  rectangles. Owned Chrome processes close with their daemon, even if it is killed.
-  Headed browsers use the interactive desktop; externally connected browsers are not owned.
+  Supported and tested platforms: Apple Silicon macOS and Linux.
 
   Example agent-browser.json:
     {{"headed": true, "hideScrollbars": false, "proxy": "http://localhost:8080"}}

@@ -47,7 +47,7 @@ agent-browser --proxy "http://proxy.example.com:8080" --ca-cert /etc/ssl/certs/p
 
 On Linux, `--ca-cert` imports each certificate into a private NSS database used only by the Chromium process launched for that session. Normal hostname and validity checks remain enabled. Later commands retain that trust when they omit the flag. A different certificate or `--no-ca-cert` relaunches Chromium without restarting the daemon. The same certificate content reuses the current browser even when supplied from a different path. `agent-browser install --with-deps` installs the required `certutil`; otherwise install `libnss3-tools` on Debian/Ubuntu or `nss-tools` on RPM Linux.
 
-The option cannot be combined with `--profile`, `--cdp`, `--auto-connect`, providers, Lightpanda, or `--ignore-https-errors`. It is not supported on macOS or Windows.
+The option cannot be combined with `--profile`, `--cdp`, `--auto-connect`, providers, Lightpanda, or `--ignore-https-errors`. It is not supported on macOS.
 
 ## SOCKS proxy
 
