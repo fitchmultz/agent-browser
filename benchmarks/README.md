@@ -26,7 +26,7 @@ Compares command latency and system metrics between the **Node.js daemon** (publ
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 24.22.3+ (24.x) or 26.13.1+
 - pnpm
 - Vercel Sandbox credentials (token, team ID, project ID)
 

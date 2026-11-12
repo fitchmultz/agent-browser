@@ -60,7 +60,7 @@ apt-get install -y libvulkan1 mesa-vulkan-drivers
 Container recipe (Debian/Ubuntu base; xvfb needed only for the screenshot path). Verified with both Chrome for Testing and Debian's `chromium` package (set `AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium` for the latter — useful on ARM64, where Chrome for Testing has no Linux builds):
 
 ```dockerfile
-FROM node:22-bookworm-slim
+FROM node:22.23.5-bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates libvulkan1 mesa-vulkan-drivers xvfb xauth \
     && rm -rf /var/lib/apt/lists/*
