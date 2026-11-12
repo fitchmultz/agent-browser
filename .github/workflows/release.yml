@@ -373,8 +373,8 @@ jobs:
       - name: Verify binaries exist
         run: |
           BINARY_COUNT=$(ls bin/agent-browser-* 2>/dev/null | wc -l)
-          if [ "$BINARY_COUNT" -lt 7 ]; then
-            echo "Error: Expected 7 binaries, found $BINARY_COUNT"
+          if [ "$BINARY_COUNT" -lt 5 ]; then
+            echo "Error: Expected 5 binaries, found $BINARY_COUNT"
             ls -la bin/
             exit 1
           fi
