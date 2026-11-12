@@ -98,13 +98,34 @@ fn run_dashboard(tmp: &TempDir, args: &[&str]) -> Output {
     let socket_dir = socket_dir(tmp);
     std::fs::create_dir_all(&socket_dir).unwrap();
 
-    Command::new(BIN)
+    let mut child = Command::new(BIN)
         .args(args)
         .env("AGENT_BROWSER_SOCKET_DIR", socket_dir)
         .env_remove("AGENT_BROWSER_DASHBOARD_ALLOWED_ORIGINS")
         .env("NO_COLOR", "1")
-        .output()
-        .expect("failed to invoke agent-browser dashboard")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to invoke agent-browser dashboard");
+    let _ = writeln!(
+        std::io::stderr(),
+        "dashboard checkpoint spawned pid={} args={args:?}",
+        child.id()
+    );
+    let status = child.wait().expect("failed to wait for dashboard CLI");
+    let _ = writeln!(
+        std::io::stderr(),
+        "dashboard checkpoint CLI exited pid={} status={status}, draining captured output",
+        child.id()
+    );
+    let output = child
+        .wait_with_output()
+        .expect("failed to capture dashboard output");
+    let _ = writeln!(
+        std::io::stderr(),
+        "dashboard checkpoint output drained args={args:?}"
+    );
+    output
 }
 
 fn json_output(output: &Output) -> Value {
