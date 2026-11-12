@@ -1100,20 +1100,15 @@ fn run_dashboard_start(port: u16, allowed_origins: Vec<String>, json_mode: bool)
         }
     }
 
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-        const DETACHED_PROCESS: u32 = 0x00000008;
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-    }
-
-    match cmd
-        .stdin(std::process::Stdio::null())
+    cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    let spawned = connection::spawn_detached(&mut cmd);
+    #[cfg(not(windows))]
+    let spawned = cmd.spawn();
+
+    match spawned {
         Ok(mut child) => {
             let pid = child.id();
             let write_result = write_dashboard_config(&requested_config)
