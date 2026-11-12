@@ -63,13 +63,6 @@ code --remote-debugging-port=9223
 discord --remote-debugging-port=9224
 ```
 
-### Windows
-
-```bash
-"C:\Users\%USERNAME%\AppData\Local\slack\slack.exe" --remote-debugging-port=9222
-"C:\Users\%USERNAME%\AppData\Local\Programs\Microsoft VS Code\Code.exe" --remote-debugging-port=9223
-```
-
 **Important:** If the app is already running, quit it first, then relaunch with the flag. The `--remote-debugging-port` flag must be present at launch time.
 
 ## Connecting

@@ -78,7 +78,7 @@ agent-browser auth save myapp \
 
 Profiles are stored in `~/.agent-browser/auth/` and always encrypted with AES-256-GCM. If `AGENT_BROWSER_ENCRYPTION_KEY` is not set, a key is auto-generated at `~/.agent-browser/.encryption-key` on first use. Back up this file or set the environment variable explicitly for portability.
 
-File permissions are enforced on both Unix (`chmod 600`/`700`) and Windows (`icacls` restricted to the current user) to prevent other users from reading encryption keys or auth profiles.
+File permissions are enforced on Apple Silicon macOS and Linux (`chmod 600`/`700`) to prevent other users from reading encryption keys or auth profiles.
 
 ### Plugins
 

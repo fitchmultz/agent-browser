@@ -120,18 +120,6 @@ jobs:
             build_target: aarch64-unknown-linux-musl
             binary: agent-browser-linux-musl-arm64
             use_zigbuild: true
-          - name: Windows x64
-            os: ubuntu-latest
-            rust_target: x86_64-pc-windows-gnu
-            build_target: x86_64-pc-windows-gnu
-            binary: agent-browser-win32-x64.exe
-            use_zigbuild: false
-          - name: macOS x64
-            os: macos-latest
-            rust_target: x86_64-apple-darwin
-            build_target: x86_64-apple-darwin
-            binary: agent-browser-darwin-x64
-            use_zigbuild: false
           - name: macOS ARM64
             os: macos-latest
             rust_target: aarch64-apple-darwin
@@ -170,7 +158,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu mingw-w64
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-x86-64-linux-gnu
 
       - name: Install cargo-zigbuild
         if: matrix.use_zigbuild
@@ -185,9 +173,6 @@ jobs:
           cat >> ~/.cargo/config.toml << 'EOF'
           [target.aarch64-unknown-linux-gnu]
           linker = "aarch64-linux-gnu-gcc"
-
-          [target.x86_64-pc-windows-gnu]
-          linker = "x86_64-w64-mingw32-gcc"
           EOF
 
       - name: Cache Rust build artifacts
@@ -206,12 +191,8 @@ jobs:
       - name: Copy binary
         run: |
           mkdir -p artifacts
-          if [[ "${{ matrix.rust_target }}" == *"windows"* ]]; then
-            cp cli/target/${{ matrix.rust_target }}/release/agent-browser.exe artifacts/${{ matrix.binary }}
-          else
-            cp cli/target/${{ matrix.rust_target }}/release/agent-browser artifacts/${{ matrix.binary }}
-            chmod +x artifacts/${{ matrix.binary }}
-          fi
+          cp cli/target/${{ matrix.rust_target }}/release/agent-browser artifacts/${{ matrix.binary }}
+          chmod +x artifacts/${{ matrix.binary }}
 
       - name: Verify Linux GNU glibc floor
         if: matrix.binary == 'agent-browser-linux-x64' || matrix.binary == 'agent-browser-linux-arm64'
@@ -295,8 +276,6 @@ jobs:
             "agent-browser-linux-arm64"
             "agent-browser-linux-musl-x64"
             "agent-browser-linux-musl-arm64"
-            "agent-browser-win32-x64.exe"
-            "agent-browser-darwin-x64"
             "agent-browser-darwin-arm64"
           )
           MIN_SIZE=100000
@@ -319,7 +298,7 @@ jobs:
             echo "Error: $ERRORS binary issues found"
             exit 1
           fi
-          echo "All 7 platform binaries present and valid"
+          echo "All 5 platform binaries present and valid"
 
       - name: Publish agent-browser
         if: needs.check-release.outputs.should_release == 'true'

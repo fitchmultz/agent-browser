@@ -184,7 +184,7 @@ agent-browser open https://example.com
 
 On Linux, `--ca-cert` imports the certificate or PEM bundle into an isolated NSS database used only by that locally launched Chromium process. Certificate hostname, validity period, and unrelated authority verification stay enabled. Later commands retain the CA when they omit the flag. Use `--no-ca-cert` to clear it. Different certificate content or an explicit clear relaunches Chromium without restarting the daemon, while the same content from any path reuses the browser. `agent-browser install --with-deps` installs the required `certutil`; otherwise install `libnss3-tools` on Debian/Ubuntu or `nss-tools` on RPM Linux.
 
-The initial implementation does not support `--profile`, `--cdp`, `--auto-connect`, providers, Lightpanda, macOS, or Windows. Use `--ignore-https-errors` only when a broad bypass is the intended contract.
+The initial implementation does not support `--profile`, `--cdp`, `--auto-connect`, providers, Lightpanda, or macOS. Use `--ignore-https-errors` only when a broad bypass is the intended contract.
 
 Without the CA certificate on hand, fall back to ignoring every certificate error:
 

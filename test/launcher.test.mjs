@@ -51,54 +51,6 @@ printf '%s\\n' ${JSON.stringify(marker)} "$@"
   });
 }
 
-test('Windows ARM64 launcher uses the published x64 executable', async (t) => {
-  const args = ['open', 'https://example.com'];
-  const result = await runLauncher(t, {
-    platform: 'win32',
-    arch: 'arm64',
-    binaries: [
-      { name: 'agent-browser-win32-x64.exe', marker: 'x64-binary-ran' },
-    ],
-    args,
-  });
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split('\n'), ['x64-binary-ran', ...args]);
-  assert.doesNotMatch(result.stderr, /No binary found/);
-});
-
-test('Windows ARM64 launcher prefers an existing native executable', async (t) => {
-  const args = ['--version'];
-  const result = await runLauncher(t, {
-    platform: 'win32',
-    arch: 'arm64',
-    binaries: [
-      { name: 'agent-browser-win32-arm64.exe', marker: 'arm64-binary-ran' },
-      { name: 'agent-browser-win32-x64.exe', marker: 'x64-binary-ran' },
-    ],
-    args,
-  });
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split('\n'), ['arm64-binary-ran', ...args]);
-});
-
-test('Windows ARM64 launcher runs when only a source-built native executable exists', async (t) => {
-  const args = ['snapshot'];
-  const result = await runLauncher(t, {
-    platform: 'win32',
-    arch: 'arm64',
-    binaries: [
-      { name: 'agent-browser-win32-arm64.exe', marker: 'arm64-binary-ran' },
-    ],
-    args,
-  });
-
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(result.stdout.trim().split('\n'), ['arm64-binary-ran', ...args]);
-  assert.doesNotMatch(result.stderr, /No binary found/);
-});
-
 test('macOS ARM64 launcher keeps selecting the ARM64 executable', async (t) => {
   const args = ['--version'];
   const result = await runLauncher(t, {

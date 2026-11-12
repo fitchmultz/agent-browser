@@ -774,7 +774,6 @@ AGENT_BROWSER_PROFILE=Default agent-browser open https://gmail.com
 
 This copies your Chrome profile to a temp directory (read-only snapshot, no changes to your original profile), so the browser launches with your existing cookies and sessions.
 
-> **Note:** On Windows, close Chrome before using `--profile <name>` if Chrome is running, as some profile files may be locked.
 
 ## Persistent Profiles
 
@@ -1327,13 +1326,13 @@ agent-browser --webgpu open https://my-webgpu-app.example.com
 agent-browser screenshot app.png
 ```
 
-On macOS and Windows this uses the hardware Metal/D3D backend. On Linux it routes WebGPU through SwiftShader's software Vulkan (no GPU needed), which requires the system Vulkan loader and Mesa ICD:
+On Apple Silicon macOS this uses the hardware Metal backend. On Linux it routes WebGPU through SwiftShader's software Vulkan (no GPU needed), which requires the system Vulkan loader and Mesa ICD:
 
 ```bash
 apt-get install -y libvulkan1 mesa-vulkan-drivers
 ```
 
-One upstream caveat: headless Chrome cannot capture WebGPU canvas presentation in screenshots on Windows and Linux (rendering and in-page readbacks work; the capture is black). Screenshots of WebGPU pages work headless on macOS; on Windows run `--headed` in a logged-in desktop session; on Linux just add `--headed` — when no `DISPLAY` is set and Xvfb is installed, agent-browser starts a private virtual display automatically (opt out with `AGENT_BROWSER_NO_XVFB=1`).
+One upstream caveat: headless Chrome cannot capture WebGPU canvas presentation in screenshots on Linux (rendering and in-page readbacks work; the capture is black). Screenshots of WebGPU pages work headless on macOS; on Linux just add `--headed` — when no `DISPLAY` is set and Xvfb is installed, agent-browser starts a private virtual display automatically (opt out with `AGENT_BROWSER_NO_XVFB=1`).
 
 Verify the full pipeline (adapter, render pass, and screenshot capture) with:
 
@@ -1386,8 +1385,6 @@ agent-browser set headers '{"X-Custom-Header": "value"}'
 ```
 
 ## Custom Browser Executable
-
-On Windows, agent-browser launches headless Chrome on a private desktop so hidden browser windows cannot leave visible rectangles on your desktop, including with affected Chrome 150 builds. This also applies to custom executables and windows opened later in the session. Headed browsers, including sessions with extensions, use the interactive desktop. Chrome processes launched by agent-browser belong to a Windows Job Object and are terminated when their daemon exits or is forcibly killed. Browsers connected through `--cdp` or `--auto-connect` remain externally owned.
 
 Use a custom browser executable instead of the bundled Chromium. This is useful for:
 
@@ -1672,13 +1669,13 @@ The daemon starts automatically on first command and persists between commands f
 
 ## Platforms
 
+Supported and tested platforms are Apple Silicon macOS and Linux.
+
 | Platform    | Binary      |
 | ----------- | ----------- |
 | macOS ARM64 | Native Rust |
-| macOS x64   | Native Rust |
 | Linux ARM64 | Native Rust |
 | Linux x64   | Native Rust |
-| Windows x64 | Native Rust |
 
 ## Usage with AI Agents
 
