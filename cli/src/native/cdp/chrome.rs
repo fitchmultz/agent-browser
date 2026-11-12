@@ -435,6 +435,7 @@ fn build_chrome_args(options: &LaunchOptions) -> Result<ChromeArgs, String> {
         "NetworkServiceInProcess".to_string(),
     ];
     if options.webmcp {
+        enable_features.push("WebMCP".to_string());
         enable_features.push("WebMCPTesting".to_string());
         enable_features.push("DevToolsWebMCPSupport".to_string());
     }
@@ -2217,6 +2218,9 @@ mod tests {
             .iter()
             .find(|arg| arg.starts_with("--enable-features="))
             .unwrap();
+        assert!(features
+            .split(['=', ','])
+            .any(|feature| feature == "WebMCP"));
         assert!(features.contains("WebMCPTesting"));
         assert!(features.contains("DevToolsWebMCPSupport"));
     }
@@ -2233,6 +2237,9 @@ mod tests {
             .iter()
             .find(|arg| arg.starts_with("--enable-features="))
             .unwrap();
+        assert!(!features
+            .split(['=', ','])
+            .any(|feature| feature == "WebMCP"));
         assert!(!features.contains("WebMCPTesting"));
         assert!(!features.contains("DevToolsWebMCPSupport"));
     }
