@@ -1054,6 +1054,7 @@ async fn e2e_stream_command_requires_same_origin_before_daemon_relay() {
 #[tokio::test]
 #[ignore]
 async fn e2e_snapshot_and_click_ref() {
+    let (base_url, server) = start_stream_navigation_server().await;
     let mut state = DaemonState::new();
 
     let resp = execute_command(
@@ -1064,7 +1065,7 @@ async fn e2e_snapshot_and_click_ref() {
     assert_success(&resp);
 
     let resp = execute_command(
-        &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
+        &json!({ "id": "2", "action": "navigate", "url": format!("{base_url}/snapshot") }),
         &mut state,
     )
     .await;
@@ -1075,7 +1076,7 @@ async fn e2e_snapshot_and_click_ref() {
     assert_success(&resp);
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
     assert!(
-        snapshot.contains("Example Domain"),
+        snapshot.contains("Snapshot probe"),
         "Snapshot should contain heading"
     );
     assert!(snapshot.contains("ref=e1"), "Snapshot should have ref e1");
@@ -1085,7 +1086,7 @@ async fn e2e_snapshot_and_click_ref() {
         "Snapshot should have a link element"
     );
 
-    // Click the link by ref (e2 is the "More information..." link)
+    // Click the link by ref (e2 is the "Continue" link).
     let resp = execute_command(
         &json!({ "id": "4", "action": "click", "selector": "e2" }),
         &mut state,
@@ -1101,13 +1102,14 @@ async fn e2e_snapshot_and_click_ref() {
     assert_success(&resp);
     let url = get_data(&resp)["url"].as_str().unwrap();
     assert!(
-        url.contains("iana.org"),
-        "Should have navigated to iana.org, got: {}",
+        url == format!("{base_url}/child"),
+        "Should have navigated to the child page, got: {}",
         url
     );
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
+    server.abort();
 }
 
 // ---------------------------------------------------------------------------
@@ -6780,6 +6782,9 @@ async fn start_stream_navigation_server() -> (String, tokio::task::JoinHandle<()
                     return;
                 }
                 let body = match path {
+                    "/snapshot" => {
+                        "<!doctype html><title>Snapshot probe</title><h1>Snapshot probe</h1><a href=\"/child\">Continue</a>"
+                    }
                     "/child" => {
                         "<!doctype html><title>child</title><p id=\"child\">child</p>"
                     }
