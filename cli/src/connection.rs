@@ -21,34 +21,6 @@ use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_I
 
 pub(crate) const INTERNAL_DAEMON_SHUTDOWN_ACTION: &str = "__agent_browser_internal_shutdown";
 
-#[cfg(windows)]
-pub fn spawn_detached(cmd: &mut Command) -> std::io::Result<std::process::Child> {
-    use std::os::windows::process::CommandExt;
-    use windows_sys::Win32::Foundation::{
-        SetHandleInformation, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
-    };
-    use windows_sys::Win32::System::Console::{
-        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-    };
-
-    // Detached children must not keep a caller's captured pipes open. Command
-    // creates separate inheritable handles for its explicit Stdio configuration.
-    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-        let handle = unsafe { GetStdHandle(id) };
-        if handle != 0
-            && handle != INVALID_HANDLE_VALUE
-            && unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) } == 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-    }
-
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-    const DETACHED_PROCESS: u32 = 0x00000008;
-    cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
-        .spawn()
-}
-
 #[derive(Serialize)]
 #[allow(dead_code)]
 pub struct Request {
@@ -924,14 +896,23 @@ pub fn ensure_daemon(session: &str, opts: &DaemonOptions) -> Result<DaemonResult
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+
         let mut cmd = Command::new(&exe_path);
         cmd.env("AGENT_BROWSER_DAEMON", "1");
         apply_daemon_env(&mut cmd, session, opts);
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped());
-        daemon_child =
-            Some(spawn_detached(&mut cmd).map_err(|e| format!("Failed to start daemon: {}", e))?);
+
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+
+        daemon_child = Some(
+            cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to start daemon: {}", e))?,
+        );
     }
 
     let spawned_pid = daemon_child.as_ref().map(|child| child.id());

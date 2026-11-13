@@ -3191,10 +3191,7 @@ mod tests {
                         .expect("initialization cleanup must shut down TCP");
                 assert!(
                     matches!(count, Ok(0))
-                        || matches!(count, Err(ref error) if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
-                        )),
+                        || matches!(count, Err(ref error) if error.kind() == std::io::ErrorKind::ConnectionReset),
                     "connection remained readable: {count:?}"
                 );
                 observed.push(methods);
