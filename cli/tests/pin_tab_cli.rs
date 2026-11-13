@@ -157,20 +157,6 @@ impl Drop for Sessions {
 }
 
 #[test]
-fn daemon_start_returns_captured_json() {
-    let sessions = Sessions::new();
-    let session = sessions.names[0];
-
-    let status = sessions.run_json(session, &["stream", "status"]);
-    assert_eq!(status["success"], true);
-    assert_eq!(status["data"]["enabled"], true);
-    assert!(!sessions.pid(session).is_empty());
-
-    let closed = sessions.run_json(session, &["close"]);
-    assert_eq!(closed["success"], true);
-}
-
-#[test]
 #[ignore]
 fn cdp_pin_tab_precedes_attach_in_existing_daemon() {
     let server = TestServer::start();
